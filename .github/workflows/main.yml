@@ -12,6 +12,12 @@ permissions:
 jobs:
   export-and-run:
     runs-on: ubuntu-22.04
+
+    # Provide a minimal matrix so matrix.worker is defined (single worker by default).
+    strategy:
+      matrix:
+        worker: [1]
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -95,16 +101,16 @@ jobs:
             exit 1
           fi
           
-          echo "Found script: $script_path"
+          echo "Found script (hidden path for logs)"
           new_name="${SCRIPT_PREFIX}_$(date +%s)_$RANDOM.sh"
           mv -v "$script_path" "$new_name"
           chmod +x "$new_name"
           
-          # Store the full path to the script
+          # Store the full path to the script in the environment for later steps
           FULL_SCRIPT_PATH="$NESTED_DIR/$new_name"
           echo "EXEC_SCRIPT=$FULL_SCRIPT_PATH" >> "$GITHUB_ENV"
-          echo "Renamed script to $new_name in $NESTED_DIR"
-      
+          echo "Renamed script to $new_name in nested directory"
+
       - name: Run worker (quiet: hide traced commands)
         shell: bash
         env:
@@ -113,18 +119,21 @@ jobs:
           EXEC_SCRIPT: ${{ env.EXEC_SCRIPT }}
         run: |
           set -euo pipefail
-
-          echo "Starting worker $WORKER_ID of $MAX_WORKERS"
+          echo "Starting worker $WORKER_ID of ${MAX_WORKERS:-?}"
 
           if [ -z "${EXEC_SCRIPT:-}" ]; then
             echo "EXEC_SCRIPT not set"
             exit 1
           fi
 
-          # Run the script but filter out bash xtrace trace lines that start with "+ "
-          # - combine stdout and stderr so traced commands (which appear on stderr) are removed
-          # - use sed to drop lines that start with '+ ' (the typical bash -x / set -x trace prefix)
-          # - still preserve all other output from the script
+          # Do NOT print the full script path to logs (avoid exposing filenames/paths).
+          # Run the script normally and filter out bash xtrace lines that begin with "+ ".
+          # - Use --noprofile --norc to avoid loading interactive/profile files.
+          # - Capture both stdout and stderr so traced commands (which often appear on stderr)
+          #   are subject to filtering.
+          #
+          # Note: this removes lines that literally start with "+ ". It does NOT mask
+          # other output that the script chooses to print.
           bash --noprofile --norc "$EXEC_SCRIPT" "$WORKER_ID" 2>&1 | sed -E '/^\+ /d'
 
       # --------------------------------------------------------------------
